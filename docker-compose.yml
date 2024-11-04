@@ -1,0 +1,9 @@
+services:
+  bot:
+    build: .
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+    env_file:
+      - .env
+    restart: unless-stopped

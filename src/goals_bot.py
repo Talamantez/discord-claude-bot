@@ -13,7 +13,10 @@ load_dotenv()
 
 class GoalsDatabase:
     def __init__(self, filename="goals.json"):
+        # Add debug logging
         self.filename = filename
+        print(f"Initializing database with file: {self.filename}")
+        print(f"Directory contents: {os.listdir('.')}")
         self.goals = self.load_goals()
     
     def load_goals(self) -> dict:
@@ -144,31 +147,43 @@ class CompanyAssistant(commands.Bot):
     async def _set_objective_impl(self, ctx, objective_text):
         """Implementation of set_objective command"""
         try:
+            print(f"Starting objective implementation for text: {objective_text}")
             message = await self.anthropic.messages.create(
                 model="claude-3-sonnet-20240229",
                 max_tokens=1024,
                 temperature=0.7,
                 messages=[{
                     "role": "user",
-                    "content": f"""Please structure this business objective into a SMART goal format:
-
-                    Objective: {objective_text}
-                    
-                    Format your response as:
-                    1. Structured Objective:
-                    [Describe the goal using SMART criteria]
-
-                    2. Key Metrics:
-                    • [Key metric 1]
-                    • [Key metric 2]
-                    • [etc...]
-
-                    3. Suggested Timeline:
-                    • [Timeline point 1]
-                    • [Timeline point 2]
-                    • [etc...]"""
+                    "content": f"""Please structure this business objective into a SMART goal format:..."""
                 }]
             )
+            print(f"Got response from Anthropic: {message}")
+        # try:
+        #     message = await self.anthropic.messages.create(
+        #         model="claude-3-sonnet-20240229",
+        #         max_tokens=1024,
+        #         temperature=0.7,
+        #         messages=[{
+        #             "role": "user",
+        #             "content": f"""Please structure this business objective into a SMART goal format:
+
+        #             Objective: {objective_text}
+                    
+        #             Format your response as:
+        #             1. Structured Objective:
+        #             [Describe the goal using SMART criteria]
+
+        #             2. Key Metrics:
+        #             • [Key metric 1]
+        #             • [Key metric 2]
+        #             • [etc...]
+
+        #             3. Suggested Timeline:
+        #             • [Timeline point 1]
+        #             • [Timeline point 2]
+        #             • [etc...]"""
+        #         }]
+        #     )
             
             structured_objective = str(message.content)
             objective_id = str(len(self.db.goals["objectives"]) + 1)

@@ -1,0 +1,8 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python -m src.goals_bot"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
