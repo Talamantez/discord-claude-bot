@@ -176,7 +176,7 @@ class CompanyAssistant(commands.Bot):
         """Implementation of set_objective command"""
         try:
             logger.info(f"Setting objective: {objective_text[:50]}...")  # Log first 50 chars
-            message = await self.anthropic.messages.create(
+            message = self.anthropic.messages.create(
                 model="claude-3-sonnet-20240229",
                 max_tokens=1024,
                 messages=[{
