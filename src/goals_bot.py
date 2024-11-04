@@ -176,34 +176,31 @@ class CompanyAssistant(commands.Bot):
         """Implementation of set_objective command"""
         try:
             logger.info(f"Setting objective: {objective_text[:50]}...")  # Log first 50 chars
-            message = await self.anthropic.messages.create(...)
+            # New way (should work):
+            message = await self.anthropic.messages.create(
+                model="claude-3-sonnet-20240229",
+                max_tokens=1024,
+                temperature=0.7,
+                system="You help structure business objectives into SMART goals.",
+                content=f"""Please structure this business objective into a SMART goal format:
+
+                Objective: {objective_text}
+                
+                Format your response as:
+                1. Structured Objective:
+                [Describe the goal using SMART criteria]
+
+                2. Key Metrics:
+                • [Key metric 1]
+                • [Key metric 2]
+                • [etc...]
+
+                3. Suggested Timeline:
+                • [Timeline point 1]
+                • [Timeline point 2]
+                • [etc...]"""
+            )
             logger.info("Got response from Anthropic")
-        # try:
-        #     message = await self.anthropic.messages.create(
-        #         model="claude-3-sonnet-20240229",
-        #         max_tokens=1024,
-        #         temperature=0.7,
-        #         messages=[{
-        #             "role": "user",
-        #             "content": f"""Please structure this business objective into a SMART goal format:
-
-        #             Objective: {objective_text}
-                    
-        #             Format your response as:
-        #             1. Structured Objective:
-        #             [Describe the goal using SMART criteria]
-
-        #             2. Key Metrics:
-        #             • [Key metric 1]
-        #             • [Key metric 2]
-        #             • [etc...]
-
-        #             3. Suggested Timeline:
-        #             • [Timeline point 1]
-        #             • [Timeline point 2]
-        #             • [etc...]"""
-        #         }]
-        #     )
             
             structured_objective = str(message.content)
             objective_id = str(len(self.db.goals["objectives"]) + 1)
