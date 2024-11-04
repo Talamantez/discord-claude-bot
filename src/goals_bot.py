@@ -81,6 +81,22 @@ class GoalsDatabase:
                 os.replace(backup_name, self.filename)
 
 class CompanyAssistant(commands.Bot):
+    def __init__(self):
+        intents = discord.Intents.default()
+        intents.message_content = True
+        
+        # Fix: Pass command_prefix first
+        super().__init__(
+            command_prefix='!',  # This needs to come first
+            intents=intents
+        )
+        
+        anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
+        if not anthropic_api_key:
+            raise ValueError("ANTHROPIC_API_KEY not found in environment variables")
+            
+        self.anthropic = Anthropic(api_key=anthropic_api_key)
+        self.db = GoalsDatabase()
     async def setup_hook(self):
         """Set up bot commands"""
         logger.info("Setting up bot commands")
