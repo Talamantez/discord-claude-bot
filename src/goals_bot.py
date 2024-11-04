@@ -7,19 +7,33 @@ import os
 from discord import Embed
 from dotenv import load_dotenv
 from .setup_commands import setup_commands
+import logging
 
 # Load environment variables
 load_dotenv()
 
+# Set up logging at the top of goals_bot.py
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
 class GoalsDatabase:
     def __init__(self, filename="goals.json"):
-        # Add debug logging
         self.filename = filename
-        print(f"Initializing database with file: {self.filename}")
-        print(f"Directory contents: {os.listdir('.')}")
+        logger.info(f"Initializing database with file: {self.filename}")
+        try:
+            logger.info(f"Directory contents: {os.listdir('.')}")
+        except Exception as e:
+            logger.error(f"Error listing directory: {e}")
         self.goals = self.load_goals()
-    
+
     def load_goals(self) -> dict:
+        logger.info("Loading goals from file")
         default_data = {
             "objectives": {},
             "updates": [],
@@ -67,28 +81,15 @@ class GoalsDatabase:
                 os.replace(backup_name, self.filename)
 
 class CompanyAssistant(commands.Bot):
-    def __init__(self):
-        intents = discord.Intents.default()
-        intents.message_content = True
-        
-        super().__init__(command_prefix='!', intents=intents)
-        
-        anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
-        if not anthropic_api_key:
-            raise ValueError("ANTHROPIC_API_KEY not found in environment variables")
-            
-        self.anthropic = Anthropic(api_key=anthropic_api_key)
-        self.db = GoalsDatabase()
-    
     async def setup_hook(self):
         """Set up bot commands"""
-        print("Setting up bot commands...")
+        logger.info("Setting up bot commands")
         setup_commands(self)
-        print("Bot commands setup complete")
+        logger.info("Bot commands setup complete")
 
     async def on_ready(self):
-        print(f'Bot is ready and logged in as {self.user}')
-        print(f'Connected to {len(self.guilds)} guilds')
+        logger.info(f'Bot is ready and logged in as {self.user}')
+        logger.info(f'Connected to {len(self.guilds)} guilds')
 
     async def on_error(self, event, *args, **kwargs):
         print(f"Error in {event}: {args} {kwargs}")
@@ -158,17 +159,9 @@ class CompanyAssistant(commands.Bot):
     async def _set_objective_impl(self, ctx, objective_text):
         """Implementation of set_objective command"""
         try:
-            print(f"Starting objective implementation for text: {objective_text}")
-            message = await self.anthropic.messages.create(
-                model="claude-3-sonnet-20240229",
-                max_tokens=1024,
-                temperature=0.7,
-                messages=[{
-                    "role": "user",
-                    "content": f"""Please structure this business objective into a SMART goal format:..."""
-                }]
-            )
-            print(f"Got response from Anthropic: {message}")
+            logger.info(f"Setting objective: {objective_text[:50]}...")  # Log first 50 chars
+            message = await self.anthropic.messages.create(...)
+            logger.info("Got response from Anthropic")
         # try:
         #     message = await self.anthropic.messages.create(
         #         model="claude-3-sonnet-20240229",
@@ -226,13 +219,8 @@ class CompanyAssistant(commands.Bot):
             await ctx.send(embed=embed)
             
         except Exception as e:
-            error_embed = Embed(
-                title="❌ Error Setting Objective",
-                description=f"An error occurred: {str(e)}",
-                color=0xff0000
-            )
-            await ctx.send(embed=error_embed)
-            print(f"Detailed error: {e}")
+            logger.error(f"Error in set_objective: {e}", exc_info=True)
+            raise
 
     async def _list_objectives_impl(self, ctx):
         """Implementation of list command"""
@@ -292,19 +280,19 @@ class CompanyAssistant(commands.Bot):
             print(f"Detailed error: {e}")
 
 def main():
+    logger.info("Starting bot initialization")
     discord_token = os.getenv('DISCORD_TOKEN')
     if not discord_token:
+        logger.error("DISCORD_TOKEN not found in environment variables")
         raise ValueError("DISCORD_TOKEN not found in environment variables")
-    
-    print("Starting bot...")    
+        
     bot = CompanyAssistant()
     try:
-        print("Running bot...")
+        logger.info("Starting bot")
         bot.run(discord_token)
     except Exception as e:
-        print(f"Bot crashed: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Bot crashed: {e}", exc_info=True)
+        raise
 
 if __name__ == "__main__":
     main()
