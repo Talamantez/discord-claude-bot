@@ -1,3 +1,46 @@
-goals.json*
-venv
+# Python
+__pycache__/
+*.py[cod]
+src/__pycache__/
+tests/__pycache__/
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE settings
+.vscode/
+.idea/
+
+# Test files
+.coverage
+.pytest_cache/
+test_goals.json*
+
+# Environment
 .env
+
+# Database files
+*.json
+*.json.backup*
+
+# Build artifacts
+*.pyc
+.python-312*
+
+# Virtual Environments
+venv/
