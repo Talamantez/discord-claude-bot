@@ -82,7 +82,18 @@ class CompanyAssistant(commands.Bot):
     
     async def setup_hook(self):
         """Set up bot commands"""
+        print("Setting up bot commands...")
         setup_commands(self)
+        print("Bot commands setup complete")
+
+    async def on_ready(self):
+        print(f'Bot is ready and logged in as {self.user}')
+        print(f'Connected to {len(self.guilds)} guilds')
+
+    async def on_error(self, event, *args, **kwargs):
+        print(f"Error in {event}: {args} {kwargs}")
+        import traceback
+        traceback.print_exc()
     
     def clean_text(self, text: str) -> str:
         """Clean up text by removing TextBlock wrapper and other artifacts"""
@@ -284,9 +295,16 @@ def main():
     discord_token = os.getenv('DISCORD_TOKEN')
     if not discord_token:
         raise ValueError("DISCORD_TOKEN not found in environment variables")
-        
+    
+    print("Starting bot...")    
     bot = CompanyAssistant()
-    bot.run(discord_token)
+    try:
+        print("Running bot...")
+        bot.run(discord_token)
+    except Exception as e:
+        print(f"Bot crashed: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     main()
