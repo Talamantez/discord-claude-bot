@@ -232,8 +232,14 @@ class CompanyAssistant(commands.Bot):
             await ctx.send(embed=embed)
             
         except Exception as e:
-            logger.error(f"Error in set_objective: {e}", exc_info=True)
-            raise
+                logger.error(f"Error in set_objective: {e}", exc_info=True)
+                error_embed = Embed(
+                    title="❌ Error Setting Objective",
+                    description=f"An error occurred: {str(e)}",
+                    color=0xff0000
+                )
+                await ctx.send(embed=error_embed)
+                return  # Return here to prevent the exception from propagating
 
     async def _list_objectives_impl(self, ctx):
         """Implementation of list command"""
