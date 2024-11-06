@@ -8,6 +8,8 @@ from discord import Embed
 from dotenv import load_dotenv
 from .setup_commands import setup_commands
 import logging
+from discord import Color, Embed
+
 
 # Load environment variables
 load_dotenv()
@@ -209,7 +211,7 @@ class CompanyAssistant(commands.Bot):
             
             embed = Embed(
                 title="📋 New Objective Created",
-                color=0x00ff00
+                color=Color.green()
             )
             
             embed.add_field(
@@ -236,10 +238,33 @@ class CompanyAssistant(commands.Bot):
                 error_embed = Embed(
                     title="❌ Error Setting Objective",
                     description=f"An error occurred: {str(e)}",
-                    color=0xff0000
+                    color=Color.red()
                 )
                 await ctx.send(embed=error_embed)
                 return  # Return here to prevent the exception from propagating
+
+    async def _clear_all_impl(self, ctx):
+        """Nuclear option to clear all objectives (admin only, testing)"""
+        # Check if user is admin
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send("❌ Only administrators can use this command!")
+            return
+
+        # Reset database to default state
+        self.db.goals = {
+            "objectives": {},
+            "updates": [],
+            "metrics": {}
+        }
+        self.db.save_goals()
+        
+        embed = Embed(
+            title="💥 Database Cleared",
+            description="All objectives and updates have been removed.",
+            color=Color.red()
+        )
+        embed.set_footer(text=f"Cleared by admin: {ctx.author.name}")
+        await ctx.send(embed=embed)
 
     async def _list_objectives_impl(self, ctx):
         """Implementation of list command"""
@@ -251,7 +276,7 @@ class CompanyAssistant(commands.Bot):
             # Create initial embed
             embed = Embed(
                 title="📊 Company Objectives",
-                color=0x0088ff,
+                color=Color.blue(),
                 description="Current company objectives and their status."
             )
             
@@ -274,7 +299,7 @@ class CompanyAssistant(commands.Bot):
                     page += 1
                     current_embed = Embed(
                         title=f"📊 Company Objectives (Page {page})",
-                        color=0x0088ff
+                        color=Color.blue()
                     )
                     objectives_in_current_embed = 0
                 
@@ -293,11 +318,144 @@ class CompanyAssistant(commands.Bot):
             error_embed = Embed(
                 title="❌ Error Listing Objectives",
                 description=f"An error occurred: {str(e)}",
-                color=0xff0000
+                color=Color.red()
             )
             await ctx.send(embed=error_embed)
             print(f"Detailed error: {e}")
 
+    async def _update_objective_status_impl(self, ctx, objective_id: str, status: str):
+        """Update objective status (active/completed/cancelled)"""
+        if objective_id not in self.db.goals["objectives"]:
+            await ctx.send(f"Objective {objective_id} not found!")
+            return
+            
+        valid_statuses = ["active", "completed", "cancelled"]
+        if status.lower() not in valid_statuses:
+            await ctx.send(f"Invalid status. Please use one of: {', '.join(valid_statuses)}")
+            return
+            
+        self.db.goals["objectives"][objective_id]["status"] = status.lower()
+        self.db.save_goals()
+        
+        embed = Embed(
+            title="✏️ Objective Updated",
+            description=f"Objective {objective_id} status changed to: {status}",
+            color=Color.green()
+        )
+        await ctx.send(embed=embed)
+
+    async def _delete_objective_impl(self, ctx, objective_id: str):
+        """Delete an objective"""
+        if objective_id not in self.db.goals["objectives"]:
+            await ctx.send(f"Objective {objective_id} not found!")
+            return
+            
+        # Optional: Only allow deletion by creator or admin
+        if str(ctx.author.id) != self.db.goals["objectives"][objective_id]["created_by"]:
+            if not ctx.author.guild_permissions.administrator:
+                await ctx.send("You can only delete objectives you created!")
+                return
+                
+        del self.db.goals["objectives"][objective_id]
+        self.db.save_goals()
+        
+        embed = Embed(
+            title="🗑️ Objective Deleted",
+            description=f"Objective {objective_id} has been deleted",
+            color=Color.red()
+        )
+        await ctx.send(embed=embed)
+
+    async def _add_progress_impl(self, ctx, objective_id: str, update_text: str):
+        """Add a progress update to an objective"""
+        if objective_id not in self.db.goals["objectives"]:
+            await ctx.send(f"Objective {objective_id} not found!")
+            return
+            
+        update = {
+            "objective_id": objective_id,
+            "text": update_text,
+            "updated_by": str(ctx.author.id),
+            "updated_at": str(datetime.datetime.now())
+        }
+        
+        self.db.goals["updates"].append(update)
+        self.db.save_goals()
+        
+        embed = Embed(
+            title="📝 Progress Update Added",
+            description=f"Update added to Objective {objective_id}",
+            color=Color.green()
+        )
+        embed.add_field(name="Update", value=update_text, inline=False)
+        await ctx.send(embed=embed)
+    
+    async def _view_progress_impl(self, ctx, objective_id: str):
+        """View progress updates for an objective"""
+        if objective_id not in self.db.goals["objectives"]:
+            await ctx.send(f"Objective {objective_id} not found!")
+            return
+            
+        updates = [u for u in self.db.goals["updates"] 
+                  if u["objective_id"] == objective_id]
+        
+        if not updates:
+            await ctx.send(f"No progress updates found for Objective {objective_id}")
+            return
+        
+        embed = Embed(
+            title=f"📊 Progress History - Objective {objective_id}",
+            color=Color.blue(),
+            description=f"Recent updates for objective {objective_id}"
+        )
+        
+        # Show last 5 updates
+        for update in updates[-5:]:
+            updated_at = datetime.datetime.fromisoformat(str(update['updated_at']))
+            formatted_date = updated_at.strftime("%Y-%m-%d %H:%M")
+            embed.add_field(
+                name=f"Update from {formatted_date}",
+                value=update['text'],
+                inline=False
+            )
+        
+        await ctx.send(embed=embed)
+
+    async def _check_admin_permission(self, ctx):
+        """Check if user has admin permissions"""
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send("❌ Only administrators can use this command!")
+            return False
+        return True
+    
+  # In goals_bot.py, add to CompanyAssistant class:
+    async def _reset_railway_impl(self, ctx):
+        """Reset the database file (admin only)"""
+        if not await self._check_admin_permission(ctx):
+            return
+            
+        try:
+            if os.path.exists(self.db.filename):
+                os.remove(self.db.filename)
+                self.db = GoalsDatabase()  # Reinitialize with fresh database
+                
+                embed = Embed(
+                    title="🔄 Database Reset",
+                    description="Database has been reset to initial state.",
+                    color=Color.green()
+                )
+                embed.set_footer(text=f"Reset by admin: {ctx.author.name}")
+                await ctx.send(embed=embed)
+            else:
+                await ctx.send("No database file found!")
+        except Exception as e:
+            error_embed = Embed(
+                title="❌ Reset Failed",
+                description=f"Error: {str(e)}",
+                color=Color.red()
+            )
+            await ctx.send(embed=error_embed)  
+    
 def main():
     logger.info("Starting bot initialization")
     discord_token = os.getenv('DISCORD_TOKEN')
