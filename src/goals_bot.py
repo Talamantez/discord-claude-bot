@@ -145,10 +145,14 @@ class CompanyAssistant(commands.Bot):
         text = text.strip("[]'")
         return text
     
-    def format_section(self, text: str, max_length: int = 1024) -> str:
-        """Format a section of text with proper line breaks and bullet points"""
+    def format_section(self, text: str, max_field_length: int = 1024) -> list:
+        """
+        Format a section of text with proper line breaks and bullet points.
+        Returns a list of formatted chunks that fit within Discord's limits.
+        """
         text = self.clean_text(text)
         
+        # Split into main sections (Structured Objective, Key Metrics, etc.)
         sections = []
         current_section = []
         
@@ -157,37 +161,54 @@ class CompanyAssistant(commands.Bot):
             if not line:
                 continue
                 
+            # Check for new main section
             if any(line.startswith(s) for s in ["1. ", "2. ", "3. "]):
                 if current_section:
                     sections.append('\n'.join(current_section))
                     current_section = []
             current_section.append(line)
-            
+                
         if current_section:
             sections.append('\n'.join(current_section))
+
+        # Format each section with proper formatting
+        formatted_chunks = []
+        current_chunk = ""
         
-        formatted_text = ""
         for section in sections:
+            formatted_section = ""
             if ":" in section:
                 title, content = section.split(":", 1)
                 content = content.strip()
                 
+                # Format bullet points
                 lines = content.split('\n')
                 formatted_lines = []
                 for line in lines:
-                    if line.strip().startswith('- '):
+                    if line.strip().startswith('- ') or line.strip().startswith('• '):
+                        formatted_lines.append('• ' + line.strip()[2:])
+                    elif line.strip().startswith('* '):
                         formatted_lines.append('• ' + line.strip()[2:])
                     else:
                         formatted_lines.append(line)
                 content = '\n'.join(formatted_lines)
                 
-                formatted_text += f"**{title.strip()}**\n{content}\n\n"
+                formatted_section = f"**{title.strip()}**\n{content}\n\n"
             else:
-                formatted_text += f"{section}\n\n"
-        
-        if len(formatted_text) > max_length:
-            return formatted_text[:max_length-3] + "..."
-        return formatted_text
+                formatted_section = f"{section}\n\n"
+                
+            # Check if adding this section would exceed field length
+            if len(current_chunk + formatted_section) > max_field_length:
+                if current_chunk:
+                    formatted_chunks.append(current_chunk.strip())
+                current_chunk = formatted_section
+            else:
+                current_chunk += formatted_section
+                
+        if current_chunk:
+            formatted_chunks.append(current_chunk.strip())
+            
+        return formatted_chunks
 
     async def _set_objective_impl(self, ctx, objective_text):
         """Implementation of set_objective command"""
@@ -195,6 +216,7 @@ class CompanyAssistant(commands.Bot):
             server_id = str(ctx.guild.id)
             logger.info(f"Setting objective for server {server_id}: {objective_text[:50]}...")
             
+            # Create the message synchronously since the Anthropic client doesn't support async
             message = self.anthropic.messages.create(
                 model="claude-3-sonnet-20240229",
                 max_tokens=1024,
@@ -224,18 +246,23 @@ class CompanyAssistant(commands.Bot):
             server_goals = self.db.get_goals(server_id)
             objective_id = str(len(server_goals["objectives"]) + 1)
             
-            formatted_objective = self.format_section(structured_objective)
+            # Get formatted chunks
+            formatted_chunks = self.format_section(structured_objective)
             
+            # Create initial embed
             embed = Embed(
                 title="📋 New Objective Created",
                 color=Color.green()
             )
             
-            embed.add_field(
-                name="SMART Goal",
-                value=formatted_objective,
-                inline=False
-            )
+            # Add chunks as separate fields if needed
+            for i, chunk in enumerate(formatted_chunks):
+                field_name = "SMART Goal" if i == 0 else f"SMART Goal (continued {i+1})"
+                embed.add_field(
+                    name=field_name,
+                    value=chunk,
+                    inline=False
+                )
             
             embed.set_footer(text=f"Objective ID: {objective_id} | Created by {ctx.author.name}")
             
@@ -258,8 +285,6 @@ class CompanyAssistant(commands.Bot):
                 color=Color.red()
             )
             await ctx.send(embed=error_embed)
-
-
 
     async def _clear_all_impl(self, ctx):
         """Nuclear option to clear all objectives (admin only, testing)"""
@@ -429,13 +454,15 @@ class CompanyAssistant(commands.Bot):
             }
             
             for obj_id, obj in sorted_objectives.items():
-                # Include status in formatted value
                 status = obj.get("status", "active")
                 status_emoji = status_emojis.get(status, "❔")
-                formatted_text = self.format_section(obj["text"])
+                
+                # Get formatted chunks for the text
+                formatted_chunks = self.format_section(obj["text"])
+                formatted_text = formatted_chunks[0] if formatted_chunks else ""
                 
                 # Add status line at the top
-                formatted_value = f"{status_emoji} Status: {status.upper()}\n\n{formatted_text}"
+                formatted_value = f"{status_emoji} **Status**: {status.upper()}\n\n{formatted_text}"
                 
                 if len(current_embed) + len(formatted_value) > 5500 or objectives_in_current_embed >= 3:
                     await ctx.send(embed=current_embed)
@@ -464,36 +491,37 @@ class CompanyAssistant(commands.Bot):
             )
             await ctx.send(embed=error_embed)
 
-    async def _reset_railway_impl(self, ctx):
-        """Reset the database file (admin only)"""
-        if not await self._check_admin_permission(ctx):
-            return
-            
-        try:
-            server_id = str(ctx.guild.id)
-            filename = self.db.get_server_filename(server_id)
-            
-            if os.path.exists(filename):
-                os.remove(filename)
-                # Reset server data
-                self.db.server_data[server_id] = self.db.load_goals(server_id)
+
+        async def _reset_railway_impl(self, ctx):
+            """Reset the database file (admin only)"""
+            if not await self._check_admin_permission(ctx):
+                return
                 
-                embed = Embed(
-                    title="🔄 Database Reset",
-                    description="Database has been reset to initial state.",
-                    color=Color.green()
+            try:
+                server_id = str(ctx.guild.id)
+                filename = self.db.get_server_filename(server_id)
+                
+                if os.path.exists(filename):
+                    os.remove(filename)
+                    # Reset server data
+                    self.db.server_data[server_id] = self.db.load_goals(server_id)
+                    
+                    embed = Embed(
+                        title="🔄 Database Reset",
+                        description="Database has been reset to initial state.",
+                        color=Color.green()
+                    )
+                    embed.set_footer(text=f"Reset by admin: {ctx.author.name}")
+                    await ctx.send(embed=embed)
+                else:
+                    await ctx.send("No database file found!")
+            except Exception as e:
+                error_embed = Embed(
+                    title="❌ Reset Failed",
+                    description=f"Error: {str(e)}",
+                    color=Color.red()
                 )
-                embed.set_footer(text=f"Reset by admin: {ctx.author.name}")
-                await ctx.send(embed=embed)
-            else:
-                await ctx.send("No database file found!")
-        except Exception as e:
-            error_embed = Embed(
-                title="❌ Reset Failed",
-                description=f"Error: {str(e)}",
-                color=Color.red()
-            )
-            await ctx.send(embed=error_embed)
+                await ctx.send(embed=error_embed)
 
 def main():
     logger.info("Starting bot initialization")

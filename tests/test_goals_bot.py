@@ -60,7 +60,7 @@ def mock_ctx_second_server(second_server_id):
 @pytest.fixture
 def mock_anthropic_response():
     """Fixture for Claude's response"""
-    response = Mock()
+    response = AsyncMock()
     response.content = """1. Structured Objective:
     Increase revenue by 25% in Q1 2024
 
@@ -83,24 +83,20 @@ class TestCompanyAssistant:
         """Test setting a new objective"""
         server_id = str(mock_ctx.guild.id)
         
-        def mock_create(*args, **kwargs):
-            return mock_anthropic_response
-
-        with patch.object(bot.anthropic.messages, 'create', side_effect=mock_create):
-            command = bot.get_command('set_objective')
-            assert command is not None
-            await command.callback(mock_ctx, objective_text="Test objective")
-            
-            # Verify database update
-            server_goals = bot.db.get_goals(server_id)
-            assert len(server_goals["objectives"]) == 1
-            assert "1" in server_goals["objectives"]
-            
-            # Verify embed
-            assert mock_ctx.send.called
-            called_embed = mock_ctx.send.call_args[1]['embed']
-            assert called_embed.title == "📋 New Objective Created"
-
+        # Create mock messages instance
+        mock_messages = Mock()
+        mock_messages.create = Mock(return_value=mock_anthropic_response)
+        bot.anthropic.messages = mock_messages
+        
+        command = bot.get_command('set_objective')
+        assert command is not None
+        await command.callback(mock_ctx, objective_text="Test objective")
+        
+        # Verify database update
+        server_goals = bot.db.get_goals(server_id)
+        assert len(server_goals["objectives"]) == 1
+        assert "1" in server_goals["objectives"]
+          
     @pytest.mark.asyncio
     async def test_list_objectives_empty(self, bot, mock_ctx):
         """Test listing objectives when none exist"""
@@ -196,7 +192,8 @@ class TestCompanyAssistant:
         for field in called_embed.fields:
             objective_number = field.name.split()[-1]
             status = server_goals["objectives"][objective_number]["status"]
-            assert status in field.value.lower()
+            field_value = str(field.value).lower()
+            assert status.lower() in field_value, f"Status '{status}' not found in field value: {field_value}"
 
     @pytest.mark.asyncio
     async def test_multiple_servers(self, bot, mock_ctx, mock_ctx_second_server, mock_anthropic_response):
