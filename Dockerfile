@@ -20,5 +20,5 @@ ENV DISCORD_TOKEN=""
 ENV ANTHROPIC_API_KEY=""
 
 # Command to run the bot
-CMD ["nodemon", "--watch", "src", "--exec", "python", "src/goals_bot.py"]
+CMD ["python", "-m", "src.goals_bot"]
 

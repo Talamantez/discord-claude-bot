@@ -6,10 +6,12 @@ import datetime
 import os
 from discord import Embed
 from dotenv import load_dotenv
-from .setup_commands import setup_commands
 import logging
 from discord import Color, Embed
-
+try:
+    from .setup_commands import setup_commands
+except ImportError:
+    from src.setup_commands import setup_commands
 
 # Load environment variables
 load_dotenv()
@@ -25,71 +27,90 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class GoalsDatabase:
-    def __init__(self, filename="goals.json"):
-        self.filename = filename
-        logger.info(f"Initializing database with file: {self.filename}")
-        try:
-            logger.info(f"Directory contents: {os.listdir('.')}")
-        except Exception as e:
-            logger.error(f"Error listing directory: {e}")
-        self.goals = self.load_goals()
+    def __init__(self, base_filename="goals"):
+        """
+        Initialize database with server-specific files
+        base_filename: Base name for database files (without .json extension)
+        """
+        self.base_filename = base_filename
+        self.server_data = {}
+        logger.info(f"Initializing database with base filename: {self.base_filename}")
 
-    def load_goals(self) -> dict:
-        logger.info("Loading goals from file")
+    def get_server_filename(self, server_id):
+        """Get the filename for a specific server"""
+        return f"{self.base_filename}_{server_id}.json"
+
+    def load_goals(self, server_id) -> dict:
+        """Load goals for a specific server"""
+        logger.info(f"Loading goals for server {server_id}")
+        filename = self.get_server_filename(server_id)
+        
         default_data = {
             "objectives": {},
             "updates": [],
             "metrics": {}
         }
         
-        if not os.path.exists(self.filename):
-            with open(self.filename, 'w') as f:
+        if not os.path.exists(filename):
+            with open(filename, 'w') as f:
                 json.dump(default_data, f, indent=2)
             return default_data
             
         try:
-            with open(self.filename, 'r') as f:
+            with open(filename, 'r') as f:
                 content = f.read().strip()
                 if not content:
-                    with open(self.filename, 'w') as f:
+                    with open(filename, 'w') as f:
                         json.dump(default_data, f, indent=2)
                     return default_data
                 return json.loads(content)
         except json.JSONDecodeError:
-            if os.path.exists(self.filename):
-                backup_name = f"{self.filename}.backup-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
-                os.rename(self.filename, backup_name)
+            if os.path.exists(filename):
+                backup_name = f"{filename}.backup-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+                os.rename(filename, backup_name)
             
-            with open(self.filename, 'w') as f:
+            with open(filename, 'w') as f:
                 json.dump(default_data, f, indent=2)
             return default_data
-    
-    def save_goals(self):
-        if os.path.exists(self.filename):
-            backup_name = f"{self.filename}.backup"
+
+    def get_goals(self, server_id):
+        """Get goals for a specific server, loading if necessary"""
+        if server_id not in self.server_data:
+            self.server_data[server_id] = self.load_goals(server_id)
+        return self.server_data[server_id]
+
+    def save_goals(self, server_id):
+        """Save goals for a specific server"""
+        if server_id not in self.server_data:
+            return
+            
+        filename = self.get_server_filename(server_id)
+        backup_name = f"{filename}.backup"
+        
+        # Create backup
+        if os.path.exists(filename):
             try:
-                with open(self.filename, 'r') as original:
+                with open(filename, 'r') as original:
                     with open(backup_name, 'w') as backup:
                         backup.write(original.read())
             except Exception as e:
-                print(f"Failed to create backup: {e}")
+                logger.error(f"Failed to create backup: {e}")
         
+        # Save new data
         try:
-            with open(self.filename, 'w') as f:
-                json.dump(self.goals, f, indent=2, default=str)
+            with open(filename, 'w') as f:
+                json.dump(self.server_data[server_id], f, indent=2, default=str)
         except Exception as e:
-            print(f"Failed to save goals: {e}")
+            logger.error(f"Failed to save goals: {e}")
             if os.path.exists(backup_name):
-                os.replace(backup_name, self.filename)
-
+                os.replace(backup_name, filename)
 class CompanyAssistant(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
         
-        # Fix: Pass command_prefix first
         super().__init__(
-            command_prefix='!',  # This needs to come first
+            command_prefix='!',
             intents=intents
         )
         
@@ -99,6 +120,7 @@ class CompanyAssistant(commands.Bot):
             
         self.anthropic = Anthropic(api_key=anthropic_api_key)
         self.db = GoalsDatabase()
+
     async def setup_hook(self):
         """Set up bot commands"""
         logger.info("Setting up bot commands")
@@ -117,12 +139,9 @@ class CompanyAssistant(commands.Bot):
     def clean_text(self, text: str) -> str:
         """Clean up text by removing TextBlock wrapper and other artifacts"""
         text = str(text)
-        # Remove TextBlock wrapper
         text = text.replace("TextBlock(text='", "").replace("')", "")
         text = text.replace("[TextBlock(text=", "").replace(")]", "")
-        # Remove escape characters
         text = text.replace("\\n", "\n")
-        # Remove list wrapper if present
         text = text.strip("[]'")
         return text
     
@@ -130,7 +149,6 @@ class CompanyAssistant(commands.Bot):
         """Format a section of text with proper line breaks and bullet points"""
         text = self.clean_text(text)
         
-        # Split into sections
         sections = []
         current_section = []
         
@@ -148,14 +166,12 @@ class CompanyAssistant(commands.Bot):
         if current_section:
             sections.append('\n'.join(current_section))
         
-        # Format each section
         formatted_text = ""
         for section in sections:
             if ":" in section:
                 title, content = section.split(":", 1)
                 content = content.strip()
                 
-                # Format bullet points - convert all dashes to bullets
                 lines = content.split('\n')
                 formatted_lines = []
                 for line in lines:
@@ -169,7 +185,6 @@ class CompanyAssistant(commands.Bot):
             else:
                 formatted_text += f"{section}\n\n"
         
-        # Truncate if necessary
         if len(formatted_text) > max_length:
             return formatted_text[:max_length-3] + "..."
         return formatted_text
@@ -177,7 +192,9 @@ class CompanyAssistant(commands.Bot):
     async def _set_objective_impl(self, ctx, objective_text):
         """Implementation of set_objective command"""
         try:
-            logger.info(f"Setting objective: {objective_text[:50]}...")  # Log first 50 chars
+            server_id = str(ctx.guild.id)
+            logger.info(f"Setting objective for server {server_id}: {objective_text[:50]}...")
+            
             message = self.anthropic.messages.create(
                 model="claude-3-sonnet-20240229",
                 max_tokens=1024,
@@ -202,10 +219,10 @@ class CompanyAssistant(commands.Bot):
                     • [etc...]"""
                 }]
             )
-            logger.info("Got response from Anthropic")
             
             structured_objective = str(message.content)
-            objective_id = str(len(self.db.goals["objectives"]) + 1)
+            server_goals = self.db.get_goals(server_id)
+            objective_id = str(len(server_goals["objectives"]) + 1)
             
             formatted_objective = self.format_section(structured_objective)
             
@@ -222,7 +239,7 @@ class CompanyAssistant(commands.Bot):
             
             embed.set_footer(text=f"Objective ID: {objective_id} | Created by {ctx.author.name}")
             
-            self.db.goals["objectives"][objective_id] = {
+            server_goals["objectives"][objective_id] = {
                 "text": structured_objective,
                 "original_text": objective_text,
                 "created_by": str(ctx.author.id),
@@ -230,33 +247,33 @@ class CompanyAssistant(commands.Bot):
                 "status": "active"
             }
             
-            self.db.save_goals()
+            self.db.save_goals(server_id)
             await ctx.send(embed=embed)
             
         except Exception as e:
-                logger.error(f"Error in set_objective: {e}", exc_info=True)
-                error_embed = Embed(
-                    title="❌ Error Setting Objective",
-                    description=f"An error occurred: {str(e)}",
-                    color=Color.red()
-                )
-                await ctx.send(embed=error_embed)
-                return  # Return here to prevent the exception from propagating
+            logger.error(f"Error in set_objective: {e}", exc_info=True)
+            error_embed = Embed(
+                title="❌ Error Setting Objective",
+                description=f"An error occurred: {str(e)}",
+                color=Color.red()
+            )
+            await ctx.send(embed=error_embed)
+
+
 
     async def _clear_all_impl(self, ctx):
         """Nuclear option to clear all objectives (admin only, testing)"""
-        # Check if user is admin
         if not ctx.author.guild_permissions.administrator:
             await ctx.send("❌ Only administrators can use this command!")
             return
 
-        # Reset database to default state
-        self.db.goals = {
+        server_id = str(ctx.guild.id)
+        self.db.server_data[server_id] = {
             "objectives": {},
             "updates": [],
             "metrics": {}
         }
-        self.db.save_goals()
+        self.db.save_goals(server_id)
         
         embed = Embed(
             title="💥 Database Cleared",
@@ -266,109 +283,12 @@ class CompanyAssistant(commands.Bot):
         embed.set_footer(text=f"Cleared by admin: {ctx.author.name}")
         await ctx.send(embed=embed)
 
-    async def _list_objectives_impl(self, ctx):
-        """Implementation of list command"""
-        try:
-            if not self.db.goals["objectives"]:
-                await ctx.send("No objectives set yet! Use `!set_objective` to create one.")
-                return
-            
-            # Create initial embed
-            embed = Embed(
-                title="📊 Company Objectives",
-                color=Color.blue(),
-                description="Current company objectives and their status."
-            )
-            
-            # Sort objectives by ID
-            sorted_objectives = dict(sorted(
-                self.db.goals["objectives"].items(),
-                key=lambda x: int(x[0])
-            ))
-            
-            current_embed = embed
-            page = 1
-            objectives_in_current_embed = 0
-            
-            for obj_id, obj in sorted_objectives.items():
-                formatted_value = self.format_section(obj["text"])
-                
-                # Check if adding this field would exceed Discord's limits
-                if len(current_embed) + len(formatted_value) > 5500 or objectives_in_current_embed >= 3:
-                    await ctx.send(embed=current_embed)
-                    page += 1
-                    current_embed = Embed(
-                        title=f"📊 Company Objectives (Page {page})",
-                        color=Color.blue()
-                    )
-                    objectives_in_current_embed = 0
-                
-                current_embed.add_field(
-                    name=f"Objective {obj_id}",
-                    value=formatted_value,
-                    inline=False
-                )
-                objectives_in_current_embed += 1
-            
-            # Send the last embed if it has any fields
-            if len(current_embed.fields) > 0:
-                await ctx.send(embed=current_embed)
-            
-        except Exception as e:
-            error_embed = Embed(
-                title="❌ Error Listing Objectives",
-                description=f"An error occurred: {str(e)}",
-                color=Color.red()
-            )
-            await ctx.send(embed=error_embed)
-            print(f"Detailed error: {e}")
-
-    async def _update_objective_status_impl(self, ctx, objective_id: str, status: str):
-        """Update objective status (active/completed/cancelled)"""
-        if objective_id not in self.db.goals["objectives"]:
-            await ctx.send(f"Objective {objective_id} not found!")
-            return
-            
-        valid_statuses = ["active", "completed", "cancelled"]
-        if status.lower() not in valid_statuses:
-            await ctx.send(f"Invalid status. Please use one of: {', '.join(valid_statuses)}")
-            return
-            
-        self.db.goals["objectives"][objective_id]["status"] = status.lower()
-        self.db.save_goals()
-        
-        embed = Embed(
-            title="✏️ Objective Updated",
-            description=f"Objective {objective_id} status changed to: {status}",
-            color=Color.green()
-        )
-        await ctx.send(embed=embed)
-
-    async def _delete_objective_impl(self, ctx, objective_id: str):
-        """Delete an objective"""
-        if objective_id not in self.db.goals["objectives"]:
-            await ctx.send(f"Objective {objective_id} not found!")
-            return
-            
-        # Optional: Only allow deletion by creator or admin
-        if str(ctx.author.id) != self.db.goals["objectives"][objective_id]["created_by"]:
-            if not ctx.author.guild_permissions.administrator:
-                await ctx.send("You can only delete objectives you created!")
-                return
-                
-        del self.db.goals["objectives"][objective_id]
-        self.db.save_goals()
-        
-        embed = Embed(
-            title="🗑️ Objective Deleted",
-            description=f"Objective {objective_id} has been deleted",
-            color=Color.red()
-        )
-        await ctx.send(embed=embed)
-
     async def _add_progress_impl(self, ctx, objective_id: str, update_text: str):
         """Add a progress update to an objective"""
-        if objective_id not in self.db.goals["objectives"]:
+        server_id = str(ctx.guild.id)
+        server_goals = self.db.get_goals(server_id)
+        
+        if objective_id not in server_goals["objectives"]:
             await ctx.send(f"Objective {objective_id} not found!")
             return
             
@@ -379,8 +299,8 @@ class CompanyAssistant(commands.Bot):
             "updated_at": str(datetime.datetime.now())
         }
         
-        self.db.goals["updates"].append(update)
-        self.db.save_goals()
+        server_goals["updates"].append(update)
+        self.db.save_goals(server_id)
         
         embed = Embed(
             title="📝 Progress Update Added",
@@ -389,14 +309,17 @@ class CompanyAssistant(commands.Bot):
         )
         embed.add_field(name="Update", value=update_text, inline=False)
         await ctx.send(embed=embed)
-    
+
     async def _view_progress_impl(self, ctx, objective_id: str):
         """View progress updates for an objective"""
-        if objective_id not in self.db.goals["objectives"]:
+        server_id = str(ctx.guild.id)
+        server_goals = self.db.get_goals(server_id)
+        
+        if objective_id not in server_goals["objectives"]:
             await ctx.send(f"Objective {objective_id} not found!")
             return
             
-        updates = [u for u in self.db.goals["updates"] 
+        updates = [u for u in server_goals["updates"] 
                   if u["objective_id"] == objective_id]
         
         if not updates:
@@ -409,7 +332,6 @@ class CompanyAssistant(commands.Bot):
             description=f"Recent updates for objective {objective_id}"
         )
         
-        # Show last 5 updates
         for update in updates[-5:]:
             updated_at = datetime.datetime.fromisoformat(str(update['updated_at']))
             formatted_date = updated_at.strftime("%Y-%m-%d %H:%M")
@@ -427,17 +349,134 @@ class CompanyAssistant(commands.Bot):
             await ctx.send("❌ Only administrators can use this command!")
             return False
         return True
-    
-  # In goals_bot.py, add to CompanyAssistant class:
+
+    async def _clear_all_impl(self, ctx):
+        """Nuclear option to clear all objectives (admin only, testing)"""
+        if not ctx.author.guild_permissions.administrator:
+            await ctx.send("❌ Only administrators can use this command!")
+            return
+
+        server_id = str(ctx.guild.id)
+        # Reset server-specific database to default state
+        self.db.server_data[server_id] = {
+            "objectives": {},
+            "updates": [],
+            "metrics": {}
+        }
+        self.db.save_goals(server_id)
+        
+        embed = Embed(
+            title="💥 Database Cleared",
+            description="All objectives and updates have been removed.",
+            color=Color.red()
+        )
+        embed.set_footer(text=f"Cleared by admin: {ctx.author.name}")
+        await ctx.send(embed=embed)
+
+    async def _update_objective_status_impl(self, ctx, objective_id: str, status: str):
+        """Update objective status (active/completed/cancelled)"""
+        server_id = str(ctx.guild.id)
+        server_goals = self.db.get_goals(server_id)
+        
+        if objective_id not in server_goals["objectives"]:
+            await ctx.send(f"Objective {objective_id} not found!")
+            return
+            
+        valid_statuses = ["active", "completed", "cancelled"]
+        if status.lower() not in valid_statuses:
+            await ctx.send(f"Invalid status. Please use one of: {', '.join(valid_statuses)}")
+            return
+            
+        server_goals["objectives"][objective_id]["status"] = status.lower()
+        self.db.save_goals(server_id)
+        
+        embed = Embed(
+            title="✏️ Objective Updated",
+            description=f"Objective {objective_id} status changed to: {status}",
+            color=Color.green()
+        )
+        await ctx.send(embed=embed)
+
+    async def _list_objectives_impl(self, ctx):
+        """Implementation of list command"""
+        try:
+            server_id = str(ctx.guild.id)
+            server_goals = self.db.get_goals(server_id)
+            
+            if not server_goals["objectives"]:
+                await ctx.send("No objectives set yet! Use `!set_objective` to create one.")
+                return
+            
+            embed = Embed(
+                title="📊 Company Objectives",
+                color=Color.blue(),
+                description="Current company objectives and their status."
+            )
+            
+            sorted_objectives = dict(sorted(
+                server_goals["objectives"].items(),
+                key=lambda x: int(x[0])
+            ))
+            
+            current_embed = embed
+            page = 1
+            objectives_in_current_embed = 0
+            
+            status_emojis = {
+                "active": "🟢",
+                "completed": "✅",
+                "cancelled": "⛔"
+            }
+            
+            for obj_id, obj in sorted_objectives.items():
+                # Include status in formatted value
+                status = obj.get("status", "active")
+                status_emoji = status_emojis.get(status, "❔")
+                formatted_text = self.format_section(obj["text"])
+                
+                # Add status line at the top
+                formatted_value = f"{status_emoji} Status: {status.upper()}\n\n{formatted_text}"
+                
+                if len(current_embed) + len(formatted_value) > 5500 or objectives_in_current_embed >= 3:
+                    await ctx.send(embed=current_embed)
+                    page += 1
+                    current_embed = Embed(
+                        title=f"📊 Company Objectives (Page {page})",
+                        color=Color.blue()
+                    )
+                    objectives_in_current_embed = 0
+                
+                current_embed.add_field(
+                    name=f"Objective {obj_id}",
+                    value=formatted_value,
+                    inline=False
+                )
+                objectives_in_current_embed += 1
+            
+            if len(current_embed.fields) > 0:
+                await ctx.send(embed=current_embed)
+                
+        except Exception as e:
+            error_embed = Embed(
+                title="❌ Error Listing Objectives",
+                description=f"An error occurred: {str(e)}",
+                color=Color.red()
+            )
+            await ctx.send(embed=error_embed)
+
     async def _reset_railway_impl(self, ctx):
         """Reset the database file (admin only)"""
         if not await self._check_admin_permission(ctx):
             return
             
         try:
-            if os.path.exists(self.db.filename):
-                os.remove(self.db.filename)
-                self.db = GoalsDatabase()  # Reinitialize with fresh database
+            server_id = str(ctx.guild.id)
+            filename = self.db.get_server_filename(server_id)
+            
+            if os.path.exists(filename):
+                os.remove(filename)
+                # Reset server data
+                self.db.server_data[server_id] = self.db.load_goals(server_id)
                 
                 embed = Embed(
                     title="🔄 Database Reset",
@@ -454,8 +493,8 @@ class CompanyAssistant(commands.Bot):
                 description=f"Error: {str(e)}",
                 color=Color.red()
             )
-            await ctx.send(embed=error_embed)  
-    
+            await ctx.send(embed=error_embed)
+
 def main():
     logger.info("Starting bot initialization")
     discord_token = os.getenv('DISCORD_TOKEN')

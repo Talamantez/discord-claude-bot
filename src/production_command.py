@@ -7,6 +7,7 @@ async def set_objective_production(ctx, *, objective_text):
     """Set a new company objective (Production version with typing indicator)"""
     async with ctx.typing():
         try:
+            server_id = str(ctx.guild.id)
             message = await ctx.bot.anthropic.messages.create(
                 model="claude-3-sonnet-20240229",
                 max_tokens=1024,
@@ -34,7 +35,8 @@ async def set_objective_production(ctx, *, objective_text):
             )
             
             structured_objective = str(message.content)
-            objective_id = str(len(ctx.bot.db.goals["objectives"]) + 1)
+            server_goals = ctx.bot.db.get_goals(server_id)
+            objective_id = str(len(server_goals["objectives"]) + 1)
             
             formatted_objective = ctx.bot.format_section(structured_objective)
             
@@ -51,7 +53,7 @@ async def set_objective_production(ctx, *, objective_text):
             
             embed.set_footer(text=f"Objective ID: {objective_id} | Created by {ctx.author.name}")
             
-            ctx.bot.db.goals["objectives"][objective_id] = {
+            server_goals["objectives"][objective_id] = {
                 "text": structured_objective,
                 "original_text": objective_text,
                 "created_by": str(ctx.author.id),
@@ -59,7 +61,7 @@ async def set_objective_production(ctx, *, objective_text):
                 "status": "active"
             }
             
-            ctx.bot.db.save_goals()
+            ctx.bot.db.save_goals(server_id)
             await ctx.send(embed=embed)
             
         except Exception as e:

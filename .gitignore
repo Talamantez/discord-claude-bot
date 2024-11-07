@@ -44,3 +44,7 @@ test_goals.json*
 
 # Virtual Environments
 venv/
+
+# Local artifacts
+concatenated_code.txt
+*.png
